@@ -5,7 +5,6 @@
 #include <utility>
 
 const std::string myInputStr = "Clojure provides array functions through aget and aset (slightly strange in that it mutates a data structure in place). Using Java arrays isn't very functional, but in my opinion this is about providing the balance between strictness (e.g. Haskell) and leniency (e.g. C)AAAAAAAAAAAAAAAAAAAAAAAAAleniencyBleniencyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-
 // probably in real life use a log2 number here, we use 20 to simulate a small buffer for a short string
 constexpr auto HISTORY_LEN = 20;
 
@@ -23,7 +22,61 @@ struct seq_element {
   };
 };
 
-// oops I wrote this and really should have used iterators because c++ only added a subvector thing in c++20
+// much simpler c style pointer based version without too much safety
+// TODO: can you do this using iterators even if you extend the size of the vector?
+// no idea..
+// also this whole mess doesn't work right if the pointer math doesn't hold
+// I feel like other implementations I've seen have less of it
+backref findBackrefC(uint8_t* part, size_t part_size, uint8_t* history, size_t hist_size) {
+  backref best_match = {0, 0};
+  // keep track of the end of history... is this how that's typically done?
+  // now that I go to do it myself I honestly can't remember
+  uint8_t* hist_end = history+hist_size;
+  uint8_t* part_end = part+part_size;
+  uint8_t* orig_history = history;
+  // try all potential starting positions in history
+  while (history < hist_end) {
+    // account for 0 distance being actually before hist_end
+    backref local_match = {0, static_cast<size_t>(hist_end-history-1)};
+    std::string match;
+    // use this pointer to actually iterate along part
+    uint8_t* pp = part;
+    // same but use this one to keep track of where we are along history
+    uint8_t* hh = history;
+    while (*pp == *hh) {
+      std::cout << "matching " << *pp << "==" << *hh << "\n";
+      match += *hh;
+      local_match.length++;
+      pp++;
+      hh++;
+      // wrap around?
+      if (hh >= hist_end) {
+        hh = history;
+      }
+    }
+    if (best_match.length < local_match.length) {
+      best_match = local_match;
+      std::string a((char*)part, part_size);
+      std::string b((char*)orig_history+hist_size-1+local_match.distance,std::min(local_match.length,));
+      std::cout << "was matching: " << a << '\n';
+      std::cout << "in          : " << b << '\n';
+      std::cout << "got match   : " << match << '\n';
+      std::cout << "dist=" << best_match.distance << "\tlength=" <<
+        best_match.length << '\n';
+      std::cout << std::endl;
+    }
+    history++;
+  }
+  return best_match;
+}
+
+
+// It would be nice if a function like this actually was implemented in such a way to support
+// state being captured as a sort of stack and allowed backtracking to try out shorter matches
+// for a better match to follow, but that's fancy...
+
+// oops I wrote this and really should have used iterators because c++ only added a subvector thing in c++20 and we could also probably make some sort of iterator contraption to handle
+// the RLE infinite history buffer thing
 backref findBackref(std::vector<uint8_t> part, std::vector<uint8_t> history) {
   // 0 is an invalid length but 0 is a valid distance (means start at last position of history)
   // code is kind of confusing because I started with i = history.size() - 1 instead of i = 0 distance, index=history.size() - 1 - i
@@ -49,9 +102,11 @@ backref findBackref(std::vector<uint8_t> part, std::vector<uint8_t> history) {
       if (hist_idx >= history.size()) {
         // restart at the beginning of this match
         hist_idx = i;
-        std::cout << "wraparound\n";
+        //std::cout << "wraparound\n";
       }
-      std::cout << "matching " << part[part_idx] <<"=="<<history[hist_idx] << '\n';
+
+      //std::cout << "matching " << part[part_idx] <<"=="<<history[hist_idx] << '\n';
+
       if (part[part_idx] == history[hist_idx]) {
         this_match.length++;
       } else {
@@ -62,10 +117,12 @@ backref findBackref(std::vector<uint8_t> part, std::vector<uint8_t> history) {
       // me scared because of things like this...
       part_idx += 1;
     }
+
     // Skip anything else for no matches
     if (this_match.length <= 0) {
       continue;
     }
+
     // We only optimize for long matches (technically you want to optimize for bit usage so shorter distances are also good)
     if (this_match.length > best_match.length) {
       best_match = this_match;
@@ -86,17 +143,27 @@ int main() {
     // think we end up copy constructing these after constructing
     // an empty vector
     if (i >= HISTORY_LEN) {
-      history = std::vector<uint8_t>(input_buffer.begin()+i-HISTORY_LEN, input_buffer.begin()+i);
+      history = std::vector<uint8_t>(input_buffer.begin()+i-HISTORY_LEN,
+       input_buffer.begin()+i);
     } else {
       history = std::vector<uint8_t>(input_buffer.begin(),
         input_buffer.begin()+i);
     }
     std::vector<uint8_t> part(input_buffer.begin()+i, input_buffer.end());
+
+    
     std::cout << "history: " << std::string(history.begin(), history.end()) << '\n';
     std::cout << "part: " << std::string(part.begin(), part.end()) << '\n';
-    auto match = findBackref(part, history);
+    
+
+    auto match = findBackrefC(part.data(), part.size(), history.data(), history.size());
+    //auto match = findBackref(part, history);
+
+    /*
     std::cout << "match len=" << match.length << '\n' << "dist=" << match.distance << '\n';
     std::cout << "match str=" << std::string(history.end()-match.distance-1, history.end()-match.distance-1+match.length) << '\n';
+    */
+
     seq_element out_elem;
     // in reality we'd want to make sure the match was long enough to justify not just using a literal and maybe non-greadily consume matches
     if (match.length > 0) {
@@ -112,7 +179,7 @@ int main() {
     }
     output.push_back(out_elem);
   }
-  /*
+  
   for (const auto& i : output) {
     // Print out our compressed form
     if (i.is_literal) {
@@ -121,15 +188,14 @@ int main() {
       std::cout << "backref dist=" << i.match.distance << " length=" << i.match.length << '\n';
     }
   } 
-  */
+  
 
   // try to reconstruct
   std::vector<char> reconstruct;
   // c++ makes us do this after initial construction because
-  // declaring the size first makes it actually act like
-  // 100 elements is in the vector, we just want to stop early
-  // resizes
-  reconstruct.reserve(100);
+  // declaring the size first makes it change it's size not just capacity
+  // no way to create and reserve capacity without messing with size...
+  reconstruct.reserve(input_buffer.size());
 
   for (const auto& i : output) {
     if (i.is_literal) {
@@ -144,20 +210,21 @@ int main() {
       int start_position = reconstruct.size() - i.match.distance - 1;
       int last_position = start_position + i.match.length;
       if (last_position > reconstruct.size()) {
+        /*
         std::cout << "start=" << start_position << '\n'
                   << "last="  << last_position  << '\n'
                   << "hist_size=" << reconstruct.size() << '\n';
         std::cout << "wtf match.distance=" << i.match.distance << '\n'
                   << "match.length=" << i.match.length << '\n';
+        */
         // byte by byte
         for (auto p = start_position; p < last_position; p++) {
           reconstruct.push_back(reconstruct[p]);
         }
-        std::cout << "chunk = " << std::string(reconstruct.begin()+start_position, reconstruct.begin()+last_position) << '\n';
+        //std::cout << "chunk = " << std::string(reconstruct.begin()+start_position, reconstruct.begin()+last_position) << '\n';
       } else {
         // Don't need to do anything to handle cycling
-        //reconstruct.insert(reconstruct.end(), reconstruct.end()-i.match.distance-1, reconstruct.end()-i.match.distance-1 + i.match.length);
-        std::cout << "backref should be = " << std::string(input_buffer.begin()+reconstruct.size()-i.match.distance-1, input_buffer.begin()+reconstruct.size()-i.match.distance-1 + i.match.length) << '\n';
+        //std::cout << "backref should be = " << std::string(input_buffer.begin()+reconstruct.size()-i.match.distance-1, input_buffer.begin()+reconstruct.size()-i.match.distance-1 + i.match.length) << '\n';
         reconstruct.insert(reconstruct.end(),
           reconstruct.end()-1-i.match.distance,
           reconstruct.end()-1-i.match.distance+i.match.length);
@@ -166,6 +233,21 @@ int main() {
     }
   }
   std::cout << reconstruct.size() << '\n';
-  std::cout << std::string(reconstruct.begin(), reconstruct.end()) << '\n';
+  std::string outstring = std::string(reconstruct.begin(), reconstruct.end());
+  std::cout << "output: " << outstring << '\n'; 
+  std::cout << "same string as input? " << (outstring == myInputStr) << '\n';
+  
+  // for debugging
+  if (outstring != myInputStr) {
+    for (auto off = 0; off < outstring.size(); off++) {
+      auto part1 = outstring.substr(0, off);
+      auto foundPos = myInputStr.find(part1);
+      std::cout << off << ": " << (foundPos == std::string::npos) << '\n';
+      if (foundPos == std::string::npos) {
+        std::cout << "bit     : " << outstring.substr(off) << '\n';
+        std::cout << "real bit: " << myInputStr.substr(off) << '\n';
+      }
+    }
+  }
   return 0;
 }
