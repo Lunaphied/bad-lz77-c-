@@ -35,7 +35,7 @@ backref findBackrefC(uint8_t* part, size_t part_size, uint8_t* history, size_t h
   uint8_t* part_end = part+part_size;
   uint8_t* orig_history = history;
   // try all potential starting positions in history
-  while (history < hist_end) {
+  while (history != hist_end) {
     // account for 0 distance being actually before hist_end
     backref local_match = {0, static_cast<size_t>(hist_end-history-1)};
     std::string match;
@@ -43,8 +43,16 @@ backref findBackrefC(uint8_t* part, size_t part_size, uint8_t* history, size_t h
     uint8_t* pp = part;
     // same but use this one to keep track of where we are along history
     uint8_t* hh = history;
-    while (*pp == *hh) {
-      std::cout << "matching " << *pp << "==" << *hh << "\n";
+    std::cout << "matching " << *pp << "==" << *hh << "\n";
+    // oops we need to actually use part_end...
+    while (pp != part_end) {
+      // No match
+      if (*pp != *hh) {
+        break;
+      }
+      if (pp != part) {
+        std::cout << "matching " << *pp << "==" << *hh << "\n";
+      }
       match += *hh;
       local_match.length++;
       pp++;
@@ -57,7 +65,13 @@ backref findBackrefC(uint8_t* part, size_t part_size, uint8_t* history, size_t h
     if (best_match.length < local_match.length) {
       best_match = local_match;
       std::string a((char*)part, part_size);
-      std::string b((char*)orig_history+hist_size-1+local_match.distance,std::min(local_match.length,));
+      // have to cap the input buffer for rle
+      uint8_t* matchStart = hist_end-1-best_match.distance;
+      uint8_t* matchEnd = matchStart+best_match.length;
+      if (matchEnd > hist_end) {
+        matchEnd = hist_end;
+      }
+      std::string b(matchStart, matchEnd);
       std::cout << "was matching: " << a << '\n';
       std::cout << "in          : " << b << '\n';
       std::cout << "got match   : " << match << '\n';
