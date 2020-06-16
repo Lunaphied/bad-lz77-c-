@@ -22,6 +22,114 @@ struct seq_element {
   };
 };
 
+// Stolen from somewhere but converted to c++ iterators
+// returns common length prefix of two substrings
+// help why typenames so long...
+inline size_t findSubstrRun(std::vector<uint8_t>::const_iterator ai,
+                            std::vector<uint8_t>::const_iterator aend,
+                            std::vector<uint8_t>::const_iterator bi,
+                            std::vector<uint8_t>::const_iterator bend) {
+  size_t n = 0;
+  while (true) {
+    if (*ai != *bi) {
+      break;
+    }
+    ++n;
+    ++ai;
+    ++bi;
+    
+    if (ai == aend || bi == bend) {
+      break;
+    }
+  }
+  return n;
+}
+
+// using templates makes type names shorter, I don't particularly like how C++ actually lets you plug
+// literally anything into a template as long as the type you plug in has fields and methods that match up
+// (otherwise it would complain about missing methods likely instead of a bad type being used). Seems
+// like duck typing to me but I don't know my type theory definitions that well. It seems messy and dangerous
+
+// Way this works
+// substr_begin points to part of the buffer that we want to match
+// history_begin points to the the start of the valid portion of the buffer for us to use for back references
+// history_end exists for flexibility, in normal usage history is from history_begin->substr_begin-1, but in
+// case we want to use a fixed buffer or something weird, lets allow some freedom.
+// substr_end points to the end iterator for the whole buffer
+
+// These must be random access iterators for reasonable performance. Bidirectional ones will likely "work" but
+// since we care about the relative offsets, it will either error (if using '-' and the like) or just not work
+// (for std::distance and the like) nearly as fast. Not an ideal situation in my mind, although some might find
+// the flexibility freeing (i.e. you get functionality in more uses if you give up performance) I don't like that
+// I can't specify that it can work two different ways without breaking to consumers of the API.
+
+// helpful base iterator diagram
+// ? 1 2 3 4 5 6 7 8 9 10 ?
+//   ^                    ^ - begin end
+// ^                   ^    - rend  rbegin
+template <typename RandomAccessIterator>
+backref findBackrefIter(
+  RandomAccessIterator substr_begin,
+  RandomAccessIterator substr_end,
+  RandomAccessIterator history_begin, 
+  RandomAccessIterator history_end
+) {
+  backref best_match = {0, 0};
+
+  // We start from the end looking for the match since smaller distance compresses better
+  // (real implementations often have lots of flexibility for long distances, very little for long matches)
+
+  // these are long types (decltype could make them slightly easier), but they allow us to get random iterators
+  auto history_rbegin = std::reverse_iterator<RandomAccessIterator>(history_end);
+  auto history_rend = std::reverse_iterator<RandomAccessIterator>(history_begin);
+  auto history_it = history_rbegin;
+  while (history_it != history_rend) {
+    auto distance = history_it-history_rbegin;
+    std::cout << "testing distance=" << distance << '\n';
+
+    // Get a forward iterator back (base element is +1 reversed element) this is always safe (not UB)
+    // once we exclude rend element (which stops us accidentally creating and dereferencing the before the begin
+    // element), both of those are bad in C++..., if that wasn't the case reverse iterator wouldn't need to exist
+    // since we could just create our own "past-the-begin" element
+    auto match_it = history_it.base()-1;
+
+    // we need to not break the original substr iterators, naming more than one of these is annoying...
+    auto substr_it = substr_begin;
+
+    // Predetermine this match
+    backref this_match = {0, static_cast<size_t>(distance)};
+
+    std::cout << "printing test matches\n";
+    while (substr_it != substr_end) {
+      // handle wrap-around
+      if (match_it == history_end) {
+        match_it = history_it.base()-1;
+      }
+
+      // Actually try matching
+      std::cout << *match_it << "==" << *substr_it << '\n';
+
+      // Matches all have to be contiguous
+      if (*match_it != *substr_it) {
+        break;
+      }
+
+      ++this_match.length;
+      ++match_it;
+      ++substr_it;
+    }
+
+    if (this_match.length > best_match.length) {
+      best_match = this_match;
+    }
+
+    ++history_it;
+  }
+
+  return best_match;
+}
+
+//backref findBackref
 // much simpler c style pointer based version without too much safety
 // TODO: can you do this using iterators even if you extend the size of the vector?
 // no idea..
@@ -144,6 +252,7 @@ backref findBackref(std::vector<uint8_t> part, std::vector<uint8_t> history) {
   }
   return best_match;
 }
+
 // Just output length distance pairs
 int main() {
   std::vector<uint8_t> input_buffer(myInputStr.begin(), myInputStr.end());
@@ -170,7 +279,8 @@ int main() {
     std::cout << "part: " << std::string(part.begin(), part.end()) << '\n';
     
 
-    auto match = findBackrefC(part.data(), part.size(), history.data(), history.size());
+    auto match = findBackrefIter(part.begin(), part.end(), history.begin(), history.end());
+    //auto match = findBackrefC(part.data(), part.size(), history.data(), history.size());
     //auto match = findBackref(part, history);
 
     /*
