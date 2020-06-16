@@ -85,7 +85,7 @@ backref findBackrefIter(
   auto history_it = history_rbegin;
   while (history_it != history_rend) {
     auto distance = history_it-history_rbegin;
-    std::cout << "testing distance=" << distance << '\n';
+    //std::cout << "testing distance=" << distance << '\n';
 
     // Get a forward iterator back (base element is +1 reversed element) this is always safe (not UB)
     // once we exclude rend element (which stops us accidentally creating and dereferencing the before the begin
@@ -99,7 +99,7 @@ backref findBackrefIter(
     // Predetermine this match
     backref this_match = {0, static_cast<size_t>(distance)};
 
-    std::cout << "printing test matches\n";
+    //std::cout << "printing test matches\n";
     while (substr_it != substr_end) {
       // handle wrap-around
       if (match_it == history_end) {
@@ -107,7 +107,7 @@ backref findBackrefIter(
       }
 
       // Actually try matching
-      std::cout << *match_it << "==" << *substr_it << '\n';
+      //std::cout << *match_it << "==" << *substr_it << '\n';
 
       // Matches all have to be contiguous
       if (*match_it != *substr_it) {
